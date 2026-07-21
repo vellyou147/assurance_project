@@ -1,0 +1,1 @@
+export function EmptyState({ title = "검색 결과가 없습니다.", description = "검색 조건을 조정한 뒤 다시 시도하세요." }: { title?: string; description?: string }) { return <div className="border border-dashed border-slate-300 bg-white p-10 text-center"><p className="font-medium text-slate-800">{title}</p><p className="mt-1 text-sm text-slate-500">{description}</p></div>; }

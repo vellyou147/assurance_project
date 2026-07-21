@@ -1,0 +1,10 @@
+import "server-only";
+
+export interface ParsedDisclosureTable { text: string; table: { headers: string[]; rows: string[][] }; }
+export interface ParsedDisclosureDocument { fileName: string; lines: string[]; tables: ParsedDisclosureTable[]; }
+export function identifyMainDocuments(entries: Array<{ fileName: string; content: string }>) { return [...entries].sort((a, b) => scoreDocument(b) - scoreDocument(a)); }
+export function parseDisclosureDocument(fileName: string, content: string): ParsedDisclosureDocument { return { fileName, lines: normalizeDisclosureContent(content).split("\n").map((line) => line.trim()).filter((line) => line.length > 1), tables: extractTables(content) }; }
+export function normalizeDisclosureContent(content: string) { return decodeEntities(content.replace(/<!--[\s\S]*?-->/g, "").replace(/<(script|style|iframe|meta|link)[\s\S]*?<\/\1>/gi, "").replace(/<(br|p|div|tr|li|h[1-6]|title|table|section)[^>]*>/gi, "\n").replace(/<[^>]+>/g, " ")).replace(/\r/g, "").replace(/[ \t]+/g, " ").replace(/\n\s*\n+/g, "\n").trim(); }
+function scoreDocument(entry: { fileName: string; content: string }) { return (entry.content.length / 1000) + (/\.xml$/i.test(entry.fileName) ? 20 : 0) + (/_[0-9]{5}\.xml$/i.test(entry.fileName) ? 0 : 40); }
+function decodeEntities(value: string) { return value.replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">").replace(/&quot;/gi, '"').replace(/&#39;/g, "'"); }
+function extractTables(content: string): ParsedDisclosureTable[] { return (content.match(/<table\b[^>]*>[\s\S]*?<\/table>/gi) ?? []).flatMap((tableHtml) => { const rows = (tableHtml.match(/<tr\b[^>]*>[\s\S]*?<\/tr>/gi) ?? []).map((row) => (row.match(/<(?:th|td)\b[^>]*>[\s\S]*?<\/(?:th|td)>/gi) ?? []).map((cell) => normalizeDisclosureContent(cell).replace(/\n/g, " ").trim()).filter(Boolean)).filter((row) => row.length > 0); if (rows.length === 0) return []; const [headers, ...body] = rows; return [{ text: rows.flat().join(" "), table: { headers, rows: body.slice(0, 30) } }]; }).slice(0, 30); }

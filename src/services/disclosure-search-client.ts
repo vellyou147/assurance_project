@@ -1,0 +1,2 @@
+import type { DisclosureSearchRequest, DisclosureSearchResult } from "@/types/disclosure";
+export async function searchDisclosureDocuments(request: DisclosureSearchRequest) { const response = await fetch("/api/disclosures/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(request) }); const body = await response.json() as { results?: DisclosureSearchResult[]; message?: string }; if (!response.ok) throw new Error(body.message ?? "공시자료 검색에 실패했습니다."); return body.results ?? []; }
