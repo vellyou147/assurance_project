@@ -1,45 +1,28 @@
 import "server-only";
-import { buildSearchKeywords } from "@/lib/note-keywords";
+import { buildSearchKeywords, getAllNoteHeadingTerms } from "@/lib/note-keywords";
 import type { DisclosureSection } from "@/types/disclosure";
 import type { ParsedDisclosureDocument } from "@/services/disclosure-parser";
 
 const MAX_SECTION_LINES = 180;
 const MAX_SECTION_CHARACTERS = 12000;
 
+interface Heading { start: number; title: string; }
+
 export function findRelevantSections(documents: ParsedDisclosureDocument[], topic: string): DisclosureSection[] {
   const keywords = buildSearchKeywords(topic);
   return deduplicateSections(documents.flatMap((document) => extractSectionContext(document, keywords)));
 }
 
-/**
- * Returns only a note whose title itself matches the requested topic.  We deliberately
- * do not fall back to arbitrary keyword paragraphs: that fallback could expose a large
- * part of the full filing when the document structure is inconsistent.
- */
 export function extractSectionContext(document: ParsedDisclosureDocument, keywords: string[]): DisclosureSection[] {
-  const matchingHeadingIndexes = document.lines
-    .map((line, index) => (isMatchingNoteHeading(line, keywords) ? index : -1))
-    .filter((index) => index >= 0);
-
-  return matchingHeadingIndexes.map((headingIndex) => {
-    const nextHeadingIndex = findNextNoteHeading(document.lines, headingIndex + 1);
-    const end = Math.min(
-      nextHeadingIndex < 0 ? document.lines.length : nextHeadingIndex,
-      headingIndex + MAX_SECTION_LINES,
-    );
-    const sectionLines = limitCharacters(document.lines.slice(headingIndex, end));
+  const headings = findHeadings(document.lines);
+  return headings.filter((heading) => matchesTopic(heading.title, keywords)).map((heading) => {
+    const nextHeading = headings.find((candidate) => candidate.start > heading.start);
+    const end = Math.min(nextHeading?.start ?? document.lines.length, heading.start + MAX_SECTION_LINES);
+    const sectionLines = limitCharacters(document.lines.slice(heading.start, end));
     const plainText = sectionLines.join("\n");
     const matchedKeywords = keywords.filter((keyword) => normalize(plainText).includes(normalize(keyword)));
-    const table = findRelatedTable(document.tables, matchedKeywords)?.table;
-
-    return {
-      id: `${document.fileName}-${headingIndex}`,
-      title: document.lines[headingIndex],
-      plainText,
-      matchedKeywords,
-      sourceFile: document.fileName,
-      table,
-    };
+    const sectionTable = document.tables.find((table) => table.lineIndex < end && table.endLineIndex > heading.start);
+    return { id: `${document.fileName}-${heading.start}`, title: heading.title, plainText, matchedKeywords, sourceFile: document.fileName, table: sectionTable?.table };
   });
 }
 
@@ -53,35 +36,27 @@ export function deduplicateSections(sections: DisclosureSection[]): DisclosureSe
   }).slice(0, 12);
 }
 
-function isMatchingNoteHeading(line: string, keywords: string[]) {
-  return isNoteHeading(line) && keywords.some((keyword) => normalize(line).includes(normalize(keyword)));
-}
-
-function isNoteHeading(line: string) {
-  const compact = line.trim();
-  if (compact.length < 3 || compact.length > 130) return false;
-  return /^(?:주석\s*)?\d{1,2}\s*(?:[.)]|\s)\s*[가-힣A-Za-z]/.test(compact);
-}
-
-function findNextNoteHeading(lines: string[], from: number) {
-  for (let index = from; index < lines.length; index += 1) {
-    if (isNoteHeading(lines[index])) return index;
+function findHeadings(lines: string[]): Heading[] {
+  const headings: Heading[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (isNumberOnly(line) && isTitleText(lines[index + 1] ?? "")) {
+      headings.push({ start: index, title: `${line} ${lines[index + 1]}`.trim() });
+      continue;
+    }
+    if (isNumberedHeading(line) || isUnnumberedTopicHeading(line)) headings.push({ start: index, title: line });
   }
-  return -1;
+  return headings;
 }
 
-function findRelatedTable<T extends { text: string }>(tables: T[], keywords: string[]) {
-  return tables.find((table) => keywords.some((keyword) => normalize(table.text).includes(normalize(keyword))));
-}
+function matchesTopic(title: string, keywords: string[]) { return keywords.some((keyword) => normalize(title).includes(normalize(keyword))); }
+function isNumberOnly(line: string) { return /^(?:주석\s*)?(?:\(?\d+(?:[.-]\d+)*\)?|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+|[가-하])(?:[.)])?$/.test(line.trim()); }
+function isNumberedHeading(line: string) { return /^(?:주석\s*)?(?:\(?\d+(?:[.-]\d+)*\)?|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+|[가-하])(?:[.)]|\s)+\s*[가-힣A-Za-z]/.test(line.trim()) && isTitleText(line); }
+function isUnnumberedTopicHeading(line: string) { return isTitleText(line) && getAllNoteHeadingTerms().some((term) => normalize(line).includes(normalize(term))); }
+function isTitleText(line: string) { const trimmed = line.trim(); return trimmed.length >= 2 && trimmed.length <= 100 && !/[。.!?]$/.test(trimmed) && !/[;:]/.test(trimmed) && !/(입니다|있습니다|있으며|합니다|같습니다|위한|대하여|대한|으로|하고)$/u.test(trimmed); }
 
 function limitCharacters(lines: string[]) {
   let length = 0;
-  return lines.filter((line) => {
-    length += line.length + 1;
-    return length <= MAX_SECTION_CHARACTERS;
-  });
+  return lines.filter((line) => { length += line.length + 1; return length <= MAX_SECTION_CHARACTERS; });
 }
-
-function normalize(value: string) {
-  return value.toLowerCase().replace(/주석|회계정책|\d+[.)]/g, "").replace(/[\s()\[\]{}·ㆍ,:;\-]/g, "");
-}
+function normalize(value: string) { return value.toLowerCase().replace(/주석|회계정책|\d+(?:[.)-]\d*)?/g, "").replace(/[\s()\[\]{}·ㆍ,:;\-]/g, ""); }

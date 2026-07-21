@@ -6,9 +6,10 @@ const topicKeywords: Record<string, string[]> = {
   "리스": ["리스", "사용권자산", "리스부채", "단기리스", "소액자산리스"],
   "금융상품": ["금융상품", "금융자산", "금융부채", "공정가치", "신용위험"],
   "영업부문": ["영업부문", "보고부문", "부문정보"],
-  "충당부채": ["충당부채", "우발부채", "복구충당부채"],
+  "충당부채": ["충당부채", "손실부채", "복구충당부채"],
   "특수관계자 거래": ["특수관계자", "특수관계자 거래", "관계기업", "주요경영진"],
   "주식기준보상": ["주식기준보상", "주식선택권", "성과조건", "공정가치"],
 };
 
 export function buildSearchKeywords(topic: string) { return [...new Set([topic, ...(topicKeywords[topic] ?? [])])]; }
+export function getAllNoteHeadingTerms() { return [...new Set(Object.values(topicKeywords).flat())]; }
